@@ -13,30 +13,6 @@ pub struct ChatMessage {
     pub username: String,
     pub content: String,
     pub created_at: std::option::Option<DateTime<Utc>>,
-    pub session_id: Option<String>,
-}
-
-impl<'de> serde::Deserialize<'de> for ChatMessage {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct RawChatMessage {
-            session_id: String,
-            content: String,
-        }
-
-        let raw = RawChatMessage::deserialize(deserializer)?;
-        Ok(ChatMessage {
-            message_id: 0,
-            user_id: 0,
-            username: String::new(),
-            content: raw.content,
-            created_at: None,
-            session_id: Some(raw.session_id),
-        })
-    }
 }
 
 impl serde::Serialize for ChatMessage {

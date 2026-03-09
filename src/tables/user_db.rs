@@ -29,8 +29,7 @@ pub async fn get_chat_history(
             m.user_id,
             u.username, 
             m.content, 
-            m.created_at,
-            NULL as `session_id: String`
+            m.created_at
         FROM messages m
         JOIN app_users u ON m.user_id = u.id
         ORDER BY m.created_at ASC

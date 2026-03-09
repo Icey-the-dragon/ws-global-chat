@@ -1,36 +1,78 @@
 # What this is
 Dockerized app that makes a web app and api to serve a chat that goes trough websockets
-## TODO:
-- [x] Change message type sent to have a format like {"type": "broadcast", "metadata":{"session_id":"<sess_id>","sent_when_override":"00_00_000"},"content":"i just use arch"}
-- [x] Record who is in which websocket sender (save user_id, senders should have a list of their ids)
-- [x] Support "private" messages (never truly private but not really anyone will see them just the server you connected to)
-  - [x] Support "Who" messages to know and verify who is in which sender
-- [ ] Make an fukk api helper so implementation is easier
-- [ ] Support /api/me?**id** and /api/logout?**id** parameters
-- Limit use of the /api/get_chat_history endpoint
 
-## Temporal api help
-### Endpoints: 
-- /api/ws -> websocket connection
-- /api/me?id=<sessid> -> (MeResponse) Verify wether session is expired, default takes cookie as session_id, in the future it will support id get parameter (400 OK = not expired)
-- /api/login -> (AuthResponse) returns cookie with session_id
-  - POST: Login_Request
-- /api/register -> (AuthResponse) returns cookie with session_id and errors if user already exists
-  - POST: Login_Request
-- /api/logout?id=<sessid> -> errases cookie and closes session given by cookie or id parameter in the future
-- /api/get_chat_history?limit=<number> -> responds with the x number of messages last sent (currently exploitable, careful can use a lot of bandwith)
-### data_structures
+## TODO:
+- Record who is in which websocket sender (save user_id, senders should have a list of their ids)
+- Support /api/me?**id** and /api/logout?**id** parameters
+- Limit use of the /api/get_chat_history endpoint
+- Make a full api helper so implementation is easier
+
+## WebSocket Protocol
+
+### Message Format (Client → Server)
+All WebSocket messages use a typed envelope:
+```json
+{
+  "type": "broadcast | private | ephemeral",
+  "metadata": {
+    "session_id": "<session_token>",
+    "to_username": "<target_user>",
+    "sent_when_override": "<optional_timestamp>"
+  },
+  "content": "message text",
+  "extra": {}
+}
+```
+
+### Message Types
+
+| Type | Description | Saved to DB | Routing |
+|------|-------------|-------------|---------|
+| `broadcast` | Normal chat message | yes | All connected clients via broadcast channel |
+| `private` | Direct message to a user | No | Only to target user + echoed to sender. Who-probe if target offline (2s timeout, then voided) |
+| `ephemeral` | Temporary message, supports arbitrary `extra` metadata for client-to-client custom comms | No | All connected clients via broadcast channel |
+
+### Message Format (Server → Client)
+```json
+{
+  "type": "broadcast | private | ephemeral | who | error",
+  "username": "sender_name",
+  "content": "message text",
+  "to_username": "recipient (private only)",
+  "users": ["user1", "user2"],
+  "extra": {}
+}
+```
+
+### Frontend Slash Commands
+- Normal message → `broadcast`
+- `/pm @username message` → `private`
+- `/ephemeral message` → `ephemeral`
+
+## API Endpoints
+
+### Endpoints:
+- `/api/ws` → WebSocket connection (typed message envelope protocol)
+- `/api/me` → **(GET)** `MeResponse` — Verify whether session is expired. Takes cookie as session_id (future: `?id=<sessid>` parameter). `200 OK` = valid session
+- `/api/login` → **(POST)** `AuthResponse` — Returns cookie with session_id
+  - Body: `LoginRequest`
+- `/api/register` → **(POST)** `AuthResponse` — Returns cookie with session_id. Errors if user already exists (`409 Conflict`)
+  - Body: `LoginRequest`
+- `/api/logout` → **(POST)** Erases cookie and closes session (future: `?id=<sessid>` parameter)
+- `/api/get_chat_history?limit=<number>` → **(GET)** Responds with the last N broadcast messages (currently exploitable, careful with bandwidth)
+
+### Data Structures
 ```
 LoginRequest {
     "username": "myname",
-    "password": "pass",
+    "password": "pass"
 }
 MeResponse {
     "valid": bool,
-    "session_token": "null_or_sess_id",
+    "session_token": "null_or_sess_id"
 }
 AuthResponse {
     "message": "successful auth (is for debugging and optional)",
-    "session_token": "token_or_null",
+    "session_token": "token_or_null"
 }
 ```
