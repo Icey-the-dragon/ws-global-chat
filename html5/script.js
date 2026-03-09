@@ -129,7 +129,35 @@ function startChat() {
         const msg = JSON.parse(event.data);
         const messageElement = document.createElement('div');
         messageElement.className = 'message';
-        messageElement.innerHTML = `<strong>${msg.username}:</strong> ${msg.content}`;
+
+        switch (msg.type) {
+            case 'private':
+                messageElement.classList.add('private-message');
+                messageElement.innerHTML = `<strong>[PM] ${msg.username}:</strong> ${msg.content}`;
+                break;
+            case 'ephemeral':
+                messageElement.classList.add('ephemeral-message');
+                messageElement.innerHTML = `<strong>[EPHEMERAL] ${msg.username}:</strong> ${msg.content}`;
+                // Emit custom event with extra metadata for client-to-client comms
+                if (msg.extra) {
+                    window.dispatchEvent(new CustomEvent('ephemeral', { detail: msg }));
+                }
+                break;
+            case 'who':
+                // Internal server probe — display as system info
+                messageElement.classList.add('system-message');
+                messageElement.innerHTML = `<strong>[SYSTEM]</strong> ${msg.content}`;
+                break;
+            case 'error':
+                messageElement.classList.add('error-message');
+                messageElement.innerHTML = `<strong>[ERROR]</strong> ${msg.content}`;
+                break;
+            case 'broadcast':
+            default:
+                messageElement.innerHTML = `<strong>${msg.username}:</strong> ${msg.content}`;
+                break;
+        }
+
         messagesDiv.appendChild(messageElement);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     };
@@ -139,14 +167,39 @@ function startChat() {
     };
 }
 
-//send messaage function
+//send message function
 input.addEventListener('keypress', (event) => {
     if (event.key === 'Enter' && input.value.trim() !== '' && socket) {
-        const msg = {
-            session_id: currentSessionToken,
-            content: input.value
-        };
-        socket.send(JSON.stringify(msg));
+        const text = input.value.trim();
+        let msg;
+
+        if (text.startsWith('/pm ')) {
+            // Format: /pm @username message
+            const parts = text.substring(4).match(/^@(\S+)\s+(.*)/);
+            if (parts) {
+                msg = {
+                    type: "private",
+                    metadata: { session_id: currentSessionToken, to_username: parts[1] },
+                    content: parts[2]
+                };
+            }
+        } else if (text.startsWith('/ephemeral ')) {
+            msg = {
+                type: "ephemeral",
+                metadata: { session_id: currentSessionToken },
+                content: text.substring(11)
+            };
+        } else {
+            msg = {
+                type: "broadcast",
+                metadata: { session_id: currentSessionToken },
+                content: text
+            };
+        }
+
+        if (msg) {
+            socket.send(JSON.stringify(msg));
+        }
         input.value = '';
     }
 });

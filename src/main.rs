@@ -10,6 +10,8 @@ mod api;
 mod routes;
 mod tables;
 mod ws_handler;
+mod ws_types;
+mod connected_users;
 //declare main thread runs this
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,7 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chat_history_route = get_chat_history(pool.clone());
     let me_route = get_me_route(session_cache.clone());
     let logout_route = logout_route(pool.clone(), session_cache.clone());
-    let ws_route = ws_route(pool.clone(), tx.clone(), session_cache.clone());
+    let connected_users = connected_users::new_registry();
+    let ws_route = ws_route(pool.clone(), tx.clone(), session_cache.clone(), connected_users.clone());
 
     let total_route = ws_route.or(login_route).or(register_route).or(chat_history_route).or(me_route).or(logout_route);
 

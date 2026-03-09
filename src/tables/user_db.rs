@@ -205,3 +205,24 @@ pub async fn get_user_by_token(
     .fetch_one(pool)
     .await
 }
+
+/// Resolve a list of user IDs to their usernames.
+pub async fn get_usernames_by_ids(
+    pool: &sqlx::MySqlPool,
+    ids: &[i32],
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut usernames = Vec::new();
+    for &uid in ids {
+        if let Ok(row) = sqlx::query_as!(
+            User,
+            "SELECT id, username, password_hash, created_at FROM app_users WHERE id = ?",
+            uid
+        )
+        .fetch_one(pool)
+        .await
+        {
+            usernames.push(row.username);
+        }
+    }
+    Ok(usernames)
+}
