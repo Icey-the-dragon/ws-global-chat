@@ -87,7 +87,7 @@ WORKDIR /app
 ENV SQLX_OFFLINE=true 
 
 # Install development dependencies
-RUN apk add --no-cache musl-dev git
+RUN apk add --no-cache clang lld musl-dev git
 
 # Install cargo-watch for hot reloading
 RUN cargo install cargo-watch

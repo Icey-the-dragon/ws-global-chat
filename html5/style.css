@@ -126,8 +126,20 @@ body {
 
 #chat-header {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 10px;
+}
+
+#user-info {
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+#current-username {
+    color: #e94560;
+    font-weight: 700;
 }
 
 #logout-button {

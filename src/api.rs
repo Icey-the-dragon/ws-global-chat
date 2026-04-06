@@ -1,5 +1,7 @@
-use crate::tables::user_db::{create_session, create_user, delete_session, confirm_user_id, CreateUserError};
 use crate::connected_users::ConnectedUsers;
+use crate::tables::user_db::{
+    CreateUserError, confirm_user_id, create_session, create_user, delete_session,
+};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -39,12 +41,14 @@ pub struct UsernamePrefixRequest {
 pub struct AuthResponse {
     pub message: String,
     pub session_token: String,
+    pub username: String,
 }
 
 #[derive(serde::Serialize)]
 pub struct MeResponse {
     pub valid: bool,
     pub session_token: Option<String>,
+    pub username: Option<String>,
 }
 
 pub fn login_route(
@@ -86,8 +90,7 @@ pub async fn handle_login(
                         warp::reply::with_status(
                             warp::reply::json(&AuthResponse {
                                 message: "Login successful!".to_string(),
-                                session_token: token,
-                            }),
+                                session_token: token,                                username: user.username.clone(),                            }),
                             warp::http::StatusCode::OK,
                         ),
                         "Set-Cookie",
@@ -161,6 +164,7 @@ pub async fn handle_register(
                                 warp::reply::json(&AuthResponse {
                                     message: "Registered successfully".to_string(),
                                     session_token: token,
+                                    username: auth.username.clone(),
                                 }),
                                 warp::http::StatusCode::OK,
                             ),
@@ -199,14 +203,14 @@ pub async fn handle_register(
         Err(CreateUserError::DatabaseError(error)) => {
             println!("error {:?} trying to register a user", error);
             Ok(warp::reply::with_header(
-            warp::reply::with_status(
-                warp::reply::json(&"Database error"),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ),
-            "Set-Cookie",
-            "",
-        ))
-        },
+                warp::reply::with_status(
+                    warp::reply::json(&"Database error"),
+                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ),
+                "Set-Cookie",
+                "",
+            ))
+        }
     }
 }
 
@@ -246,7 +250,7 @@ pub fn get_me_route(
     warp::path("api")
         .and(warp::path("me"))
         .and(warp::get())
-        .and(warp::query::query())
+        .and(warp::query::query::<UserID>().map(Some).or(warp::any().map(|| None)).unify())
         .and(warp::header::optional::<String>("cookie"))
         .and(warp::any().map(move || session_cache.clone()))
         .and(warp::any().map(move || pool.clone()))
@@ -254,27 +258,36 @@ pub fn get_me_route(
 }
 
 pub async fn handle_get_me(
-    user_id: UserID,
+    user_id: Option<UserID>,
     cookie_header: Option<String>,
     session_cache: Arc<RwLock<HashSet<String>>>,
     pool: sqlx::MySqlPool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let mut session_token = None;
+    let mut username = None;
     if let Some(cookie_str) = cookie_header {
         if let Some(token) = extract_session_token(&cookie_str) {
             let cache = session_cache.read().await;
             if cache.contains(&token) {
-                session_token = Some(token);
+                drop(cache);
+                // Fetch username from database
+                if let Ok(user) = crate::tables::user_db::get_user_by_token(&pool, &token).await {
+                    session_token = Some(token);
+                    username = Some(user.username);
+                }
             }
         }
-    } else if confirm_user_id(&pool, user_id.id).await.is_ok() {
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&MeResponse {
-                valid: true,
-                session_token: None,
-            }),
-            warp::http::StatusCode::OK,
-        ))
+    } else if let Some(id_value) = user_id {
+        if confirm_user_id(&pool, id_value.id).await.is_ok() {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&MeResponse {
+                    valid: true,
+                    session_token: None,
+                    username: None,
+                }),
+                warp::http::StatusCode::OK,
+            ));
+        }
     }
 
     if let Some(token) = session_token {
@@ -282,6 +295,7 @@ pub async fn handle_get_me(
             warp::reply::json(&MeResponse {
                 valid: true,
                 session_token: Some(token),
+                username,
             }),
             warp::http::StatusCode::OK,
         ))
@@ -290,6 +304,7 @@ pub async fn handle_get_me(
             warp::reply::json(&MeResponse {
                 valid: false,
                 session_token: None,
+                username: None,
             }),
             warp::http::StatusCode::UNAUTHORIZED,
         ))
@@ -348,7 +363,8 @@ pub async fn handle_get_online_users(
     connected: ConnectedUsers,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let user_ids = crate::connected_users::get_online_user_ids(&connected).await;
-    let usernames = crate::tables::user_db::get_usernames_by_ids(&pool, &user_ids).await
+    let usernames = crate::tables::user_db::get_usernames_by_ids(&pool, &user_ids)
+        .await
         .unwrap_or_default();
     Ok(warp::reply::json(&usernames))
 }

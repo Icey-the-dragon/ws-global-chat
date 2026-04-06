@@ -12,9 +12,11 @@ const chatBox = document.getElementById('chat-box'); // Kept from original, not 
 const messagesDiv = document.getElementById('messages');
 const input = document.getElementById('input');
 const logoutButton = document.getElementById('logout-button');
+const currentUsernameSpan = document.getElementById('current-username');
 
 let socket;
 let currentSessionToken = null;
+let currentUsername = null;
 let suggestionMenu = null;
 let onlineUsers = []; // Keep for backward compatibility, but won't be populated
 let usernameQueryTimeout = null;
@@ -128,6 +130,7 @@ async function checkSession() {
             const data = await response.json();
             if (data.valid) {
                 currentSessionToken = data.session_token;
+                currentUsername = data.username;
                 startChat();
             } else {
                 loginOverlay.classList.remove('hidden');
@@ -163,6 +166,7 @@ async function handleAuth(endpoint) {
         if (response.ok) {
             showSuccess(data.message);
             currentSessionToken = data.session_token;
+            currentUsername = data.username;
             startChat();
         } else {
             if (response.status === 409) {
@@ -228,6 +232,7 @@ async function load_history(limit) {
 function startChat() {
     loginOverlay.classList.add('hidden');
     chatBox.classList.remove('hidden');
+    currentUsernameSpan.textContent = currentUsername;
     input.focus();
 
     socket = new WebSocket(`${protocol}//${host}/ws`);
@@ -257,10 +262,19 @@ function startChat() {
                 }
                 break;
             case 'who':
-                // Internal server probe — display as system info
-                messageElement.classList.add('system-message');
-                messageElement.innerHTML = `<strong>[SYSTEM]</strong> ${msg.content}`;
-                break;
+                // Respond to who probes if the current user matches the target
+                if (msg.to_username && msg.to_username === currentUsername && socket) {
+                    // Send a presence acknowledgment message
+                    const presenceMsg = {
+                        type: "ephemeral",
+                        metadata: { session_id: currentSessionToken },
+                        content: `[presence] ${currentUsername} is online`,
+                        extra: { probe_response: true }
+                    };
+                    socket.send(JSON.stringify(presenceMsg));
+                }
+                // Don't display who probes to the user
+                return;
             case 'error':
                 messageElement.classList.add('error-message');
                 messageElement.innerHTML = `<strong>[ERROR]</strong> ${msg.content}`;
@@ -288,7 +302,7 @@ input.addEventListener('input', (event) => {
         // Username completion after @
         const atIndex = text.lastIndexOf('@');
         const prefix = text.substring(atIndex + 1);
-        if (prefix.length >= 2) { // Require at least 2 characters before querying
+        if (prefix.length >= 1) { // Require at least 1 character before querying
             // Debounce the query
             clearTimeout(usernameQueryTimeout);
             usernameQueryTimeout = setTimeout(async () => {
@@ -326,12 +340,45 @@ input.addEventListener('keydown', (event) => {
             hideSuggestions();
         }
     } else {
-        // Original Ctrl+Space handling
+        // Command and username auto-completion with Ctrl+Space
         if (event.ctrlKey && event.code === 'Space') {
             event.preventDefault();
             const text = input.value;
-            if (text === '/') {
-                showSuggestions(['/pm @username message', '/ephemeral message'], (selected) => {
+            
+            // Check for username completion (@x pattern)
+            if (text.includes('@')) {
+                const atIndex = text.lastIndexOf('@');
+                const prefix = text.substring(atIndex + 1);
+                
+                // Check if @ is followed by at least 1 character and no spaces
+                if (prefix.length >= 1 && !prefix.includes(' ')) {
+                    // Query usernames
+                    queryUsernames(prefix.toLowerCase()).then(matches => {
+                        if (matches.length > 0) {
+                            showSuggestions(matches, (selected) => {
+                                const beforeAt = text.substring(0, atIndex + 1);
+                                input.value = beforeAt + selected + ' ';
+                                input.focus();
+                            });
+                        }
+                    });
+                    return;
+                }
+            }
+            
+            // Check if input starts with /
+            if (text.startsWith('/')) {
+                const commands = [
+                    '/pm @username message',
+                    '/ephemeral message'
+                ];
+                
+                // Filter commands that start with the input
+                const matches = commands.filter(cmd => cmd.startsWith(text));
+                
+                if (matches.length === 1) {
+                    // Auto-complete if only one match
+                    const selected = matches[0];
                     if (selected.startsWith('/pm')) {
                         input.value = '/pm @';
                         input.setSelectionRange(5, 5);
@@ -340,7 +387,19 @@ input.addEventListener('keydown', (event) => {
                         input.setSelectionRange(11, 11);
                     }
                     input.focus();
-                });
+                } else if (matches.length > 1) {
+                    // Show suggestions if multiple matches
+                    showSuggestions(matches, (selected) => {
+                        if (selected.startsWith('/pm')) {
+                            input.value = '/pm @';
+                            input.setSelectionRange(5, 5);
+                        } else if (selected.startsWith('/ephemeral')) {
+                            input.value = '/ephemeral ';
+                            input.setSelectionRange(11, 11);
+                        }
+                        input.focus();
+                    });
+                }
             }
         }
     }

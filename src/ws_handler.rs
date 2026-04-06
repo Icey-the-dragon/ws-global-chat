@@ -207,10 +207,16 @@ async fn handle_private(
         }
     };
 
+    println!("[DEBUG] Sender: {}, Target: {}, Message: {}", sender_username, to_username, ws_msg.content);
+
     // Resolve target user to get their ID
     let target_user = match crate::tables::user_db::find_user_by_username(pool, &to_username).await {
-        Ok(u) => u,
-        Err(_) => {
+        Ok(u) => {
+            println!("[DEBUG] Found target user: {} (ID: {})", u.username, u.id);
+            u
+        },
+        Err(e) => {
+            println!("[DEBUG] User '{}' not found: {:?}", to_username, e);
             send_error(sender_direct_tx, &format!("User '{}' not found", to_username));
             return;
         }
@@ -226,19 +232,28 @@ async fn handle_private(
     };
     let json = match serde_json::to_string(&out) {
         Ok(j) => j,
-        Err(_) => return,
+        Err(e) => {
+            println!("[DEBUG] Failed to serialize message: {:?}", e);
+            return;
+        }
     };
 
     // First try direct delivery
     let delivered = connected_users::send_to_user(connected, target_user.id, &json).await;
+    println!("[DEBUG] Direct delivery to user {}: {} connections", target_user.id, delivered);
+    
     if delivered > 0 {
         // Echo back to sender so they see their own PM
         if sender_id != target_user.id {
+            println!("[DEBUG] Sending echo back to sender");
             let _ = sender_direct_tx.send(Message::text(json));
+        } else {
+            println!("[DEBUG] Sender and target are same user, skipping echo");
         }
         return;
     }
 
+    //if user can't be found probe for him
     let who_probe = WsOutgoing {
         msg_type: OutgoingType::Who,
         username: "system".to_string(),
@@ -253,16 +268,20 @@ async fn handle_private(
     }
 
     // Wait briefly for the user to potentially appear
+    println!("[DEBUG] User '{}' not connected, waiting 2 seconds...", to_username);
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Re-check after timeout
     let delivered = connected_users::send_to_user(connected, target_user.id, &json).await;
+    println!("[DEBUG] Re-delivery after timeout to user {}: {} connections", target_user.id, delivered);
+    
     if delivered > 0 {
         if sender_id != target_user.id {
             let _ = sender_direct_tx.send(Message::text(json));
         }
     } else {
         // Void the message — user never appeared
+        println!("[DEBUG] Message to '{}' voided - user never came online", to_username);
         send_error(
             sender_direct_tx,
             &format!("User '{}' is not reachable. Message voided.", to_username),
