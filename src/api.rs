@@ -1,4 +1,4 @@
-use crate::tables::user_db::{create_session, create_user, delete_session};
+use crate::tables::user_db::{create_session, create_user, delete_session, confirm_user_id, CreateUserError};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -7,6 +7,11 @@ use warp::Filter;
 #[derive(serde::Deserialize)]
 pub struct LimitMessages {
     pub limit: i32,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UserID {
+    pub id: i32,
 }
 #[derive(serde::Deserialize)]
 pub struct LoginRequest {
@@ -116,82 +121,76 @@ pub async fn handle_register(
     pool: sqlx::MySqlPool,
     session_cache: Arc<RwLock<HashSet<String>>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let user_result = crate::tables::user_db::find_user_by_username(&pool, &auth.username).await;
-
-    match user_result {
+    match create_user(&pool, &auth.username, &auth.password).await {
         Ok(_) => {
-            // Success: Return JSON with 409 conflicting data
-            Ok(warp::reply::with_header(
-                warp::reply::with_status(
-                    warp::reply::json(&"User already exists"),
-                    warp::http::StatusCode::CONFLICT,
-                ),
-                "Set-Cookie",
-                "",
-            ))
-        }
-        _ => {
-            match create_user(&pool, &auth.username, &auth.password).await {
-                Ok(_) => {
-                    // Fetch the user to get the ID
-                    if let Ok(user) =
-                        crate::tables::user_db::find_user_by_username(&pool, &auth.username).await
-                    {
-                        let user_id = user.id;
-                        match create_session(&pool, user_id).await {
-                            Ok(token) => {
-                                // Add to cache
-                                {
-                                    let mut cache = session_cache.write().await;
-                                    cache.insert(token.clone());
-                                }
-
-                                let cookie = format!(
-                                    "session_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
-                                    token
-                                );
-                                Ok(warp::reply::with_header(
-                                    warp::reply::with_status(
-                                        warp::reply::json(&AuthResponse {
-                                            message: "Registered successfully".to_string(),
-                                            session_token: token,
-                                        }),
-                                        warp::http::StatusCode::OK,
-                                    ),
-                                    "Set-Cookie",
-                                    cookie,
-                                ))
-                            }
-                            Err(_) => Ok(warp::reply::with_header(
-                                warp::reply::with_status(
-                                    warp::reply::json(&"Registered but failed to create session"),
-                                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                ),
-                                "Set-Cookie",
-                                "",
-                            )),
+            // Fetch the user to get the ID
+            if let Ok(user) =
+                crate::tables::user_db::find_user_by_username(&pool, &auth.username).await
+            {
+                let user_id = user.id;
+                match create_session(&pool, user_id).await {
+                    Ok(token) => {
+                        // Add to cache
+                        {
+                            let mut cache = session_cache.write().await;
+                            cache.insert(token.clone());
                         }
-                    } else {
+
+                        let cookie = format!(
+                            "session_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                            token
+                        );
                         Ok(warp::reply::with_header(
                             warp::reply::with_status(
-                                warp::reply::json(&"Registered but failed to fetch ID"),
-                                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                warp::reply::json(&AuthResponse {
+                                    message: "Registered successfully".to_string(),
+                                    session_token: token,
+                                }),
+                                warp::http::StatusCode::OK,
                             ),
                             "Set-Cookie",
-                            "",
+                            cookie,
                         ))
                     }
+                    Err(_) => Ok(warp::reply::with_header(
+                        warp::reply::with_status(
+                            warp::reply::json(&"Registered but failed to create session"),
+                            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        ),
+                        "Set-Cookie",
+                        "",
+                    )),
                 }
-                Err(_) => Ok(warp::reply::with_header(
+            } else {
+                Ok(warp::reply::with_header(
                     warp::reply::with_status(
-                        warp::reply::json(&"Database is not online, please try again later"),
+                        warp::reply::json(&"Registered but failed to fetch ID"),
                         warp::http::StatusCode::INTERNAL_SERVER_ERROR,
                     ),
                     "Set-Cookie",
                     "",
-                )),
+                ))
             }
         }
+        Err(CreateUserError::UsernameTaken) => Ok(warp::reply::with_header(
+            warp::reply::with_status(
+                warp::reply::json(&"Username already taken"),
+                warp::http::StatusCode::CONFLICT,
+            ),
+            "Set-Cookie",
+            "",
+        )),
+        Err(CreateUserError::DatabaseError(error)) => {
+            println!("error {:?} trying to register a user", error);
+            Ok(warp::reply::with_header(
+            warp::reply::with_status(
+                warp::reply::json(&"Database error"),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            "Set-Cookie",
+            "",
+        ))
+        },
     }
 }
 
@@ -226,18 +225,23 @@ pub async fn handle_chat_history(
 
 pub fn get_me_route(
     session_cache: Arc<RwLock<HashSet<String>>>,
+    pool: sqlx::MySqlPool,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path("api")
         .and(warp::path("me"))
         .and(warp::get())
+        .and(warp::query::query())
         .and(warp::header::optional::<String>("cookie"))
         .and(warp::any().map(move || session_cache.clone()))
+        .and(warp::any().map(move || pool.clone()))
         .and_then(handle_get_me)
 }
 
 pub async fn handle_get_me(
+    user_id: UserID,
     cookie_header: Option<String>,
     session_cache: Arc<RwLock<HashSet<String>>>,
+    pool: sqlx::MySqlPool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let mut session_token = None;
     if let Some(cookie_str) = cookie_header {
@@ -247,6 +251,14 @@ pub async fn handle_get_me(
                 session_token = Some(token);
             }
         }
+    } else if confirm_user_id(&pool, user_id.id).await.is_ok() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&MeResponse {
+                valid: true,
+                session_token: None,
+            }),
+            warp::http::StatusCode::OK,
+        ))
     }
 
     if let Some(token) = session_token {

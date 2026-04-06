@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO messages (user_id, content, created_at) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ceb022e2f2b1209a3bda2042fe9de2ec3c7f69f0746ca9c970d9e41722d992fc"
+}

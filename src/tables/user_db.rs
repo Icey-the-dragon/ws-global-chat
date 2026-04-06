@@ -17,6 +17,12 @@ pub struct User {
     pub created_at: DateTime<Utc>, // maps to TIMESTAMP
 }
 
+#[derive(Debug)]
+pub enum CreateUserError {
+    UsernameTaken,
+    DatabaseError(sqlx::Error),
+}
+
 pub async fn get_chat_history(
     pool: &sqlx::MySqlPool,
     limit: i32,
@@ -35,7 +41,7 @@ pub async fn get_chat_history(
         ORDER BY m.created_at ASC
         LIMIT ?
         "#,
-        limit
+        std::cmp::min(1000, limit)
     )
     .fetch_all(pool)
     .await
@@ -79,12 +85,16 @@ pub async fn create_user(
     pool: &sqlx::MySqlPool,
     username: &str,
     raw_password: &str,
-) -> Result<u64, sqlx::Error> {
-    // 1. Hash the password using the function we talked about earlier
+) -> Result<(), CreateUserError> {
+    // Check if username exists
+    if find_user_by_username(pool, username).await.is_ok() {
+        return Err(CreateUserError::UsernameTaken);
+    }
+
     let hashed_password = hash_password(raw_password);
 
-    // 2. Insert into the database
-    let result = sqlx::query!(
+    // Insert into the database
+    sqlx::query!(
         r#"
         INSERT INTO app_users (username, password_hash)
         VALUES (?, ?)
@@ -93,24 +103,36 @@ pub async fn create_user(
         hashed_password
     )
     .execute(pool)
-    .await?;
+    .await
+    .map_err(CreateUserError::DatabaseError)?;
 
-    // Returns the number of rows affected (should be 1)
-    Ok(result.rows_affected())
+    Ok(())
 }
 
 pub async fn save_message(
     pool: &sqlx::MySqlPool,
     user_id: i32,
     content: &str,
+    created_at: Option<DateTime<Utc>>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO messages (user_id, content) VALUES (?, ?)",
-        user_id,
-        content
-    )
-    .execute(pool)
-    .await?;
+    if let Some(dt) = created_at {
+        sqlx::query!(
+            "INSERT INTO messages (user_id, content, created_at) VALUES (?, ?, ?)",
+            user_id,
+            content,
+            dt
+        )
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query!(
+            "INSERT INTO messages (user_id, content) VALUES (?, ?)",
+            user_id,
+            content
+        )
+        .execute(pool)
+        .await?;
+    }
     Ok(())
 }
 
@@ -146,14 +168,12 @@ pub async fn delete_session(
     Ok(())
 }
 
-pub async fn _confirm_user_id(
+pub async fn confirm_user_id(
     pool: &sqlx::MySqlPool,
     user_id: i32,
-    username: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "SELECT * FROM app_users WHERE username=? AND id=?",
-        username,
+        "SELECT * FROM sessions WHERE user_id=?",
         user_id
     )
     .fetch_one(pool)
@@ -205,8 +225,8 @@ pub async fn get_user_by_token(
     .await
 }
 
-/// Resolve a list of user IDs to their usernames.
-pub async fn get_usernames_by_ids(
+/// Resolve a list of user IDs to their usernames. still to implement endpoint
+pub async fn _get_usernames_by_ids(
     pool: &sqlx::MySqlPool,
     ids: &[i32],
 ) -> Result<Vec<String>, sqlx::Error> {

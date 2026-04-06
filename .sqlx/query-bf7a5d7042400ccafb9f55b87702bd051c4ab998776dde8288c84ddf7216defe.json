@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "\n        SELECT \n            m.id as message_id,\n            m.user_id,\n            u.username, \n            m.content, \n            m.created_at,\n            NULL as `session_id: String`\n        FROM messages m\n        JOIN app_users u ON m.user_id = u.id\n        ORDER BY m.created_at ASC\n        LIMIT ?\n        ",
+  "query": "\n        SELECT \n            m.id as message_id,\n            m.user_id,\n            u.username, \n            m.content, \n            m.created_at\n        FROM messages m\n        JOIN app_users u ON m.user_id = u.id\n        ORDER BY m.created_at ASC\n        LIMIT ?\n        ",
   "describe": {
     "columns": [
       {
@@ -47,15 +47,6 @@
           "flags": "MULTIPLE_KEY | UNSIGNED | BINARY | TIMESTAMP",
           "max_size": 19
         }
-      },
-      {
-        "ordinal": 5,
-        "name": "session_id: String",
-        "type_info": {
-          "type": "Null",
-          "flags": "BINARY",
-          "max_size": 0
-        }
       }
     ],
     "parameters": {
@@ -66,9 +57,8 @@
       false,
       false,
       false,
-      true,
       true
     ]
   },
-  "hash": "1359b3379d10f7121494d05967457e416101e5e8b5bf4f6308a477c1ce021278"
+  "hash": "bf7a5d7042400ccafb9f55b87702bd051c4ab998776dde8288c84ddf7216defe"
 }

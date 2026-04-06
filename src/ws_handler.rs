@@ -3,9 +3,13 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use warp::filters::ws::{Message, WebSocket};
 use std::sync::Arc;
 use std::collections::HashSet;
+use chrono::Utc;
 
 use crate::connected_users::{self, ConnectedUsers};
 use crate::ws_types::*;
+
+// ── -- (for substituting - with emdash ─ on vscode)
+
 
 pub async fn handle_connection(
     pool: sqlx::MySqlPool,
@@ -42,7 +46,7 @@ pub async fn handle_connection(
 
     // Track this connection's authenticated state
     let mut authenticated_user_id: Option<i32> = None;
-    let mut authenticated_username: Option<String> = None;
+    let mut _authenticated_username: Option<String> = None;
     let mut sender_index: Option<usize> = None;
 
     while let Some(result) = ws_receiver.next().await {
@@ -63,13 +67,13 @@ pub async fn handle_connection(
                                         )
                                         .await;
                                         authenticated_user_id = Some(uid);
-                                        authenticated_username = Some(uname.clone());
+                                        _authenticated_username = Some(uname.clone());
                                         sender_index = Some(idx);
                                     }
                                     (uid, uname)
                                 }
                                 None => {
-                                    send_error(&direct_tx, "Invalid or expired session");
+                                    send_error(&direct_tx, "401 Invalid or expired session");
                                     continue;
                                 }
                             };
@@ -77,7 +81,7 @@ pub async fn handle_connection(
                         // ── Route by message type ──
                         match ws_msg.msg_type {
                             MessageType::Broadcast => {
-                                handle_broadcast(&pool, &tx, user_id, &username, &ws_msg.content).await;
+                                handle_broadcast(&pool, &tx, &direct_tx, user_id, &username, &ws_msg).await;
                             }
                             MessageType::Private => {
                                 handle_private(
@@ -149,11 +153,24 @@ fn send_error(direct_tx: &mpsc::UnboundedSender<Message>, msg: &str) {
 async fn handle_broadcast(
     pool: &sqlx::MySqlPool,
     tx: &broadcast::Sender<String>,
+    direct_tx: &mpsc::UnboundedSender<Message>,
     user_id: i32,
     username: &str,
-    content: &str,
+    ws_msg: &WsIncoming,
 ) {
-    if crate::tables::user_db::save_message(pool, user_id, content)
+    let created_at = if let Some(ref override_str) = ws_msg.metadata.sent_when_override {
+        match chrono::DateTime::parse_from_rfc3339(override_str) {
+            Ok(dt) => Some(dt.with_timezone(&Utc)),
+            Err(_) => {
+                send_error(&direct_tx, "Invalid timestamp format in sent_when_override, example : 1996-12-19T16:39:57-08:00");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    if crate::tables::user_db::save_message(pool, user_id, &ws_msg.content, created_at)
         .await
         .is_err()
     {
@@ -164,7 +181,7 @@ async fn handle_broadcast(
     let out = WsOutgoing {
         msg_type: OutgoingType::Broadcast,
         username: username.to_string(),
-        content: content.to_string(),
+        content: ws_msg.content.clone(),
         to_username: None,
         users: None,
         extra: None,

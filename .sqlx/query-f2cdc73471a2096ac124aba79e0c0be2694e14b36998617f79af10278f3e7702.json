@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT * FROM app_users WHERE username=? AND id=?",
+  "query": "SELECT id, username, password_hash, created_at FROM app_users WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -41,7 +41,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -50,5 +50,5 @@
       false
     ]
   },
-  "hash": "c6faace3d2e7166faaaea085da144a8cdf981f1513e24ed65f5be72d8eab0369"
+  "hash": "f2cdc73471a2096ac124aba79e0c0be2694e14b36998617f79af10278f3e7702"
 }

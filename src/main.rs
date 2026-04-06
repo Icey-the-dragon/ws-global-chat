@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let login_route = login_route(pool.clone(), session_cache.clone());
     let register_route = register_route(pool.clone(), session_cache.clone());
     let chat_history_route = get_chat_history(pool.clone());
-    let me_route = get_me_route(session_cache.clone());
+    let me_route = get_me_route(session_cache.clone(), pool.clone());
     let logout_route = logout_route(pool.clone(), session_cache.clone());
     let connected_users = connected_users::new_registry();
     let ws_route = ws_route(pool.clone(), tx.clone(), session_cache.clone(), connected_users.clone());

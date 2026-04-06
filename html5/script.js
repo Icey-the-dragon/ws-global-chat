@@ -60,7 +60,11 @@ async function handleAuth(endpoint) {
             currentSessionToken = data.session_token;
             startChat();
         } else {
-            showError(data || "Authentication failed");
+            if (response.status === 409) {
+                showError("Username already taken");
+            } else {
+                showError(data || "Authentication failed");
+            }
         }
     } catch (err) {
         showError("Server error, please try again later");
@@ -126,6 +130,9 @@ function startChat() {
     load_history(50);
 
     socket.onmessage = function (event) {
+        if (event.data.startsWith("403 ")){
+            window.location.reload();
+        }
         const msg = JSON.parse(event.data);
         const messageElement = document.createElement('div');
         messageElement.className = 'message';

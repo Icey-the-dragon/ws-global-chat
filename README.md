@@ -2,10 +2,13 @@
 Dockerized app that makes a web app and api to serve a chat that goes trough websockets
 
 ## TODO:
-- Record who is in which websocket sender (save user_id, senders should have a list of their ids)
-- Support /api/me?**id** and /api/logout?**id** parameters
-- Limit use of the /api/get_chat_history endpoint
-- Make a full api helper so implementation is easier
+- [x] Check if username exists before trying to create user
+- [x] Record who is in which websocket sender (save user_id, senders should have a list of their ids)
+- [x] Support /api/me?**id** Not supporting /api/logout?**id** since anyone could log anyone else out, maybe on the future if **id** changes from number to something else
+- [x] Limit use of the /api/get_chat_history endpoint
+- [ ] Make a full api helper so implementation is easier
+- [ ] Create endpoint for list of ids solving to list of usernames
+- [ ] Change find_user_by_username calls to find_id_by_username and use the id instead (Optimization)
 
 ## WebSocket Protocol
 
@@ -55,7 +58,8 @@ All WebSocket messages use a typed envelope:
 
 ### Endpoints:
 - `/api/ws` → WebSocket connection (typed message envelope protocol)
-- `/api/me` → **(GET)** `MeResponse` — Verify whether session is expired. Takes cookie as session_id (future: `?id=<sessid>` parameter). `200 OK` = valid session
+- `/api/me` → **(GET)** `MeResponse` — Verify whether session is expired. Takes cookie as session_id. `200 OK` = valid session
+  - Also suports `/api/me?id=<user_id>` for checking if user with id=<user_id> has an active session, useful for servers
 - `/api/login` → **(POST)** `AuthResponse` — Returns cookie with session_id
   - Body: `LoginRequest`
 - `/api/register` → **(POST)** `AuthResponse` — Returns cookie with session_id. Errors if user already exists (`409 Conflict`)
