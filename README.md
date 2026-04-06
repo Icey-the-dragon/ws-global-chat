@@ -36,7 +36,7 @@ All WebSocket messages use a typed envelope:
 | `private` | Direct message to a user | No | Only to target user / server hosting user + echoed to sender. Who-probe if target offline (2s timeout, then voided) |
 | `ephemeral` | Temporary message, supports arbitrary `extra` metadata for client-to-client custom comms | No | All connected clients via broadcast channel |
 
-> Extra made fore client-client custom things anyone might wanna make, metadata field saved especifically for server fields.
+> Extra made for client-client custom things incase anyone might wanna use it, metadata field saved especifically for server fields.
 
 ### Message Format (Server → Client)
 ```json

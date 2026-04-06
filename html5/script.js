@@ -262,18 +262,13 @@ function startChat() {
                 }
                 break;
             case 'who':
-                // Respond to who probes if the current user matches the target
                 if (msg.to_username && msg.to_username === currentUsername && socket) {
-                    // Send a presence acknowledgment message
-                    const presenceMsg = {
-                        type: "ephemeral",
+                    socket.send(JSON.stringify({
+                        type: "who",
                         metadata: { session_id: currentSessionToken },
-                        content: `[presence] ${currentUsername} is online`,
-                        extra: { probe_response: true }
-                    };
-                    socket.send(JSON.stringify(presenceMsg));
+                        content: ""
+                    }));
                 }
-                // Don't display who probes to the user
                 return;
             case 'error':
                 messageElement.classList.add('error-message');

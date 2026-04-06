@@ -86,6 +86,7 @@ pub async fn handle_connection(
                             MessageType::Private => {
                                 handle_private(
                                     &pool,
+                                    &tx,
                                     &connected,
                                     &direct_tx,
                                     user_id,
@@ -96,6 +97,9 @@ pub async fn handle_connection(
                             }
                             MessageType::Ephemeral => {
                                 handle_ephemeral(&tx, &username, &ws_msg.content, ws_msg.extra);
+                            }
+                            MessageType::Who => {
+                                // Silent ack — auth/registration already happened above
                             }
                         }
                     } else {
@@ -193,6 +197,7 @@ async fn handle_broadcast(
 
 async fn handle_private(
     pool: &sqlx::MySqlPool,
+    tx: &broadcast::Sender<String>,
     connected: &ConnectedUsers,
     sender_direct_tx: &mpsc::UnboundedSender<Message>,
     sender_id: i32,
@@ -257,17 +262,17 @@ async fn handle_private(
     let who_probe = WsOutgoing {
         msg_type: OutgoingType::Who,
         username: "system".to_string(),
-        content: format!("looking for user '{}'", to_username),
+        content: String::new(),
         to_username: Some(to_username.clone()),
         users: None,
         extra: None,
     };
     if let Ok(who_json) = serde_json::to_string(&who_probe) {
-        // Log the probe (in a multi-server setup this would go to other instances)
         println!("[WHO probe] {}", who_json);
+        let _ = tx.send(who_json);
     }
 
-    // Wait briefly for the user to potentially appear
+    // Wait briefly for the user to potentially appear (so as not to have to prove)
     println!("[DEBUG] User '{}' not connected, waiting 2 seconds...", to_username);
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 

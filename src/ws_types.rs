@@ -19,6 +19,7 @@ pub enum MessageType {
     Broadcast,
     Private,
     Ephemeral,
+    Who,
 }
 
 #[derive(Debug, Deserialize)]
