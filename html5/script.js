@@ -15,6 +15,111 @@ const logoutButton = document.getElementById('logout-button');
 
 let socket;
 let currentSessionToken = null;
+let suggestionMenu = null;
+let onlineUsers = []; // Keep for backward compatibility, but won't be populated
+let usernameQueryTimeout = null;
+let selectedSuggestionIndex = -1;
+let currentSuggestions = [];
+let currentOnSelect = null;
+
+// Hide login overlay initially to prevent flash if user has valid session
+loginOverlay.classList.add('hidden');
+
+function createSuggestionMenu() {
+    if (suggestionMenu) return;
+    suggestionMenu = document.createElement('div');
+    suggestionMenu.id = 'suggestion-menu';
+    suggestionMenu.style.position = 'absolute';
+    suggestionMenu.style.background = 'rgba(255, 255, 255, 0.05)';
+    suggestionMenu.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+    suggestionMenu.style.borderRadius = '12px';
+    suggestionMenu.style.boxShadow = '0 8px 32px 0 rgba(0, 0, 0, 0.37)';
+    suggestionMenu.style.maxHeight = '200px';
+    suggestionMenu.style.overflowY = 'auto';
+    suggestionMenu.style.zIndex = '1000';
+    suggestionMenu.style.backdropFilter = 'blur(10px)';
+    document.body.appendChild(suggestionMenu);
+}
+
+function showSuggestions(suggestions, onSelect) {
+    if (!suggestionMenu) createSuggestionMenu();
+    suggestionMenu.innerHTML = '';
+    currentSuggestions = suggestions;
+    currentOnSelect = onSelect;
+    selectedSuggestionIndex = -1;
+
+    suggestions.forEach((suggestion, index) => {
+        const item = document.createElement('div');
+        item.textContent = suggestion;
+        item.style.padding = '10px 15px';
+        item.style.cursor = 'pointer';
+        item.style.color = '#fff';
+        item.style.transition = 'background 0.2s ease';
+        item.addEventListener('click', () => {
+            onSelect(suggestion);
+            hideSuggestions();
+        });
+        item.addEventListener('mouseenter', () => {
+            updateSelection(index);
+        });
+        suggestionMenu.appendChild(item);
+    });
+
+    positionMenu();
+    suggestionMenu.style.display = 'block';
+}
+
+function updateSelection(newIndex) {
+    // Remove previous selection
+    if (selectedSuggestionIndex >= 0 && selectedSuggestionIndex < suggestionMenu.children.length) {
+        suggestionMenu.children[selectedSuggestionIndex].style.background = 'transparent';
+    }
+
+    selectedSuggestionIndex = newIndex;
+
+    // Apply new selection
+    if (selectedSuggestionIndex >= 0 && selectedSuggestionIndex < suggestionMenu.children.length) {
+        suggestionMenu.children[selectedSuggestionIndex].style.background = 'rgba(233, 69, 96, 0.3)';
+        // Scroll into view
+        suggestionMenu.children[selectedSuggestionIndex].scrollIntoView({
+            block: 'nearest',
+            inline: 'nearest'
+        });
+    }
+}
+
+function hideSuggestions() {
+    if (suggestionMenu) {
+        suggestionMenu.style.display = 'none';
+    }
+    selectedSuggestionIndex = -1;
+    currentSuggestions = [];
+    currentOnSelect = null;
+}
+
+function positionMenu() {
+    const rect = input.getBoundingClientRect();
+    const menuHeight = Math.min(200, suggestionMenu.scrollHeight);
+    suggestionMenu.style.left = rect.left + 'px';
+    suggestionMenu.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+    suggestionMenu.style.width = rect.width + 'px';
+}
+
+async function queryUsernames(prefix) {
+    try {
+        const response = await fetch('/api/usernames_by_prefix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefix })
+        });
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (err) {
+        console.error('Failed to query usernames:', err);
+    }
+    return [];
+}
 
 async function checkSession() {
     try {
@@ -140,7 +245,8 @@ function startChat() {
         switch (msg.type) {
             case 'private':
                 messageElement.classList.add('private-message');
-                messageElement.innerHTML = `<strong>[PM] ${msg.username}:</strong> ${msg.content}`;
+                const recipient = msg.to_username ? ` to ${msg.to_username}` : '';
+                messageElement.innerHTML = `<strong>[PM${recipient}] ${msg.username}:</strong> ${msg.content}`;
                 break;
             case 'ephemeral':
                 messageElement.classList.add('ephemeral-message');
@@ -175,6 +281,71 @@ function startChat() {
 }
 
 //send message function
+input.addEventListener('input', (event) => {
+    const text = input.value;
+    hideSuggestions();
+    if (text.includes('@')) {
+        // Username completion after @
+        const atIndex = text.lastIndexOf('@');
+        const prefix = text.substring(atIndex + 1);
+        if (prefix.length >= 2) { // Require at least 2 characters before querying
+            // Debounce the query
+            clearTimeout(usernameQueryTimeout);
+            usernameQueryTimeout = setTimeout(async () => {
+                const matches = await queryUsernames(prefix.toLowerCase());
+                if (matches.length > 0) {
+                    showSuggestions(matches, (selected) => {
+                        const beforeAt = text.substring(0, atIndex + 1);
+                        input.value = beforeAt + selected + ' ';
+                        input.focus();
+                    });
+                }
+            }, 300); // Increased debounce to 300ms
+        }
+    }
+});
+
+input.addEventListener('keydown', (event) => {
+    if (suggestionMenu && suggestionMenu.style.display !== 'none') {
+        // Handle suggestion navigation
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            const newIndex = Math.min(selectedSuggestionIndex + 1, currentSuggestions.length - 1);
+            updateSelection(newIndex);
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            const newIndex = Math.max(selectedSuggestionIndex - 1, -1);
+            updateSelection(newIndex);
+        } else if (event.key === 'Enter' && selectedSuggestionIndex >= 0) {
+            event.preventDefault();
+            if (currentOnSelect && currentSuggestions[selectedSuggestionIndex]) {
+                currentOnSelect(currentSuggestions[selectedSuggestionIndex]);
+                hideSuggestions();
+            }
+        } else if (event.key === 'Escape') {
+            hideSuggestions();
+        }
+    } else {
+        // Original Ctrl+Space handling
+        if (event.ctrlKey && event.code === 'Space') {
+            event.preventDefault();
+            const text = input.value;
+            if (text === '/') {
+                showSuggestions(['/pm @username message', '/ephemeral message'], (selected) => {
+                    if (selected.startsWith('/pm')) {
+                        input.value = '/pm @';
+                        input.setSelectionRange(5, 5);
+                    } else if (selected.startsWith('/ephemeral')) {
+                        input.value = '/ephemeral ';
+                        input.setSelectionRange(11, 11);
+                    }
+                    input.focus();
+                });
+            }
+        }
+    }
+});
+
 input.addEventListener('keypress', (event) => {
     if (event.key === 'Enter' && input.value.trim() !== '' && socket) {
         const text = input.value.trim();
@@ -217,6 +388,12 @@ logoutButton.addEventListener('click', async () => {
     } catch (err) {
         console.error("Logout failed", err);
         window.location.reload();
+    }
+});
+
+document.addEventListener('click', (event) => {
+    if (suggestionMenu && !suggestionMenu.contains(event.target) && event.target !== input) {
+        hideSuggestions();
     }
 });
 

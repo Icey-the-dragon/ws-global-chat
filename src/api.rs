@@ -1,4 +1,5 @@
 use crate::tables::user_db::{create_session, create_user, delete_session, confirm_user_id, CreateUserError};
+use crate::connected_users::ConnectedUsers;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -17,6 +18,21 @@ pub struct UserID {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct SessionIdsRequest {
+    pub session_ids: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UserIdsRequest {
+    pub user_ids: Vec<i32>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UsernamePrefixRequest {
+    pub prefix: String,
 }
 
 #[derive(serde::Serialize)]
@@ -313,6 +329,151 @@ pub async fn handle_logout(
         "Set-Cookie",
         cookie,
     ))
+}
+
+pub fn get_online_users_route(
+    pool: sqlx::MySqlPool,
+    connected: ConnectedUsers,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("api")
+        .and(warp::path("online_users"))
+        .and(warp::get())
+        .and(warp::any().map(move || pool.clone()))
+        .and(warp::any().map(move || connected.clone()))
+        .and_then(handle_get_online_users)
+}
+
+pub async fn handle_get_online_users(
+    pool: sqlx::MySqlPool,
+    connected: ConnectedUsers,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let user_ids = crate::connected_users::get_online_user_ids(&connected).await;
+    let usernames = crate::tables::user_db::get_usernames_by_ids(&pool, &user_ids).await
+        .unwrap_or_default();
+    Ok(warp::reply::json(&usernames))
+}
+
+pub fn get_user_ids_by_sessions_route(
+    pool: sqlx::MySqlPool,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("api")
+        .and(warp::path("user_ids_by_sessions"))
+        .and(warp::post())
+        .and(warp::header::optional::<String>("cookie"))
+        .and(warp::body::json())
+        .and(warp::any().map(move || pool.clone()))
+        .and_then(handle_get_user_ids_by_sessions)
+}
+
+pub async fn handle_get_user_ids_by_sessions(
+    cookie_header: Option<String>,
+    request: SessionIdsRequest,
+    pool: sqlx::MySqlPool,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let session_ids = if let Some(ids) = request.session_ids {
+        if ids.is_empty() {
+            // Use cookie token
+            if let Some(cookie_str) = cookie_header {
+                if let Some(token) = extract_session_token(&cookie_str) {
+                    vec![token]
+                } else {
+                    return Ok(warp::reply::json(&Vec::<Option<i32>>::new()));
+                }
+            } else {
+                return Ok(warp::reply::json(&Vec::<Option<i32>>::new()));
+            }
+        } else {
+            ids
+        }
+    } else {
+        // Use cookie token
+        if let Some(cookie_str) = cookie_header {
+            if let Some(token) = extract_session_token(&cookie_str) {
+                vec![token]
+            } else {
+                return Ok(warp::reply::json(&Vec::<Option<i32>>::new()));
+            }
+        } else {
+            return Ok(warp::reply::json(&Vec::<Option<i32>>::new()));
+        }
+    };
+
+    let mut user_ids = Vec::new();
+    for session_id in session_ids {
+        if let Ok(user) = crate::tables::user_db::get_user_by_token(&pool, &session_id).await {
+            user_ids.push(Some(user.id));
+        } else {
+            user_ids.push(None);
+        }
+    }
+
+    Ok(warp::reply::json(&user_ids))
+}
+
+pub fn get_usernames_by_ids_route(
+    pool: sqlx::MySqlPool,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("api")
+        .and(warp::path("usernames_by_ids"))
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(warp::any().map(move || pool.clone()))
+        .and_then(handle_get_usernames_by_ids)
+}
+
+pub async fn handle_get_usernames_by_ids(
+    request: UserIdsRequest,
+    pool: sqlx::MySqlPool,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let mut usernames = Vec::new();
+    for &user_id in &request.user_ids {
+        if let Ok(row) = sqlx::query_as!(
+            crate::tables::user_db::User,
+            "SELECT id, username, password_hash, created_at FROM app_users WHERE id = ?",
+            user_id
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            usernames.push(Some(row.username));
+        } else {
+            usernames.push(None);
+        }
+    }
+
+    Ok(warp::reply::json(&usernames))
+}
+
+pub fn get_usernames_by_prefix_route(
+    pool: sqlx::MySqlPool,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("api")
+        .and(warp::path("usernames_by_prefix"))
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(warp::any().map(move || pool.clone()))
+        .and_then(handle_get_usernames_by_prefix)
+}
+
+pub async fn handle_get_usernames_by_prefix(
+    request: UsernamePrefixRequest,
+    pool: sqlx::MySqlPool,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    if request.prefix.is_empty() {
+        return Ok(warp::reply::json(&Vec::<String>::new()));
+    }
+
+    let pattern = format!("{}%", request.prefix.to_lowercase());
+    let rows = sqlx::query!(
+        "SELECT username FROM app_users WHERE LOWER(username) LIKE ? ORDER BY username LIMIT 10",
+        pattern
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    let usernames: Vec<String> = rows.into_iter().map(|r| r.username).collect();
+    Ok(warp::reply::json(&usernames))
 }
 
 fn extract_session_token(cookie_str: &str) -> Option<String> {

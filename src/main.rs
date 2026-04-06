@@ -3,7 +3,7 @@ use warp::Filter;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::{api::{login_route, register_route, get_chat_history, get_me_route, logout_route}, routes::ws_route};
+use crate::{api::{login_route, register_route, get_chat_history, get_me_route, logout_route, get_online_users_route, get_user_ids_by_sessions_route, get_usernames_by_ids_route, get_usernames_by_prefix_route}, routes::ws_route};
 //mod ~= namespace import
 mod db;
 mod api;
@@ -35,10 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chat_history_route = get_chat_history(pool.clone());
     let me_route = get_me_route(session_cache.clone(), pool.clone());
     let logout_route = logout_route(pool.clone(), session_cache.clone());
-    let connected_users = connected_users::new_registry();
-    let ws_route = ws_route(pool.clone(), tx.clone(), session_cache.clone(), connected_users.clone());
+    let connected_users_registry = connected_users::new_registry();
+    let online_users_route = get_online_users_route(pool.clone(), connected_users_registry.clone());
+    let user_ids_by_sessions_route = get_user_ids_by_sessions_route(pool.clone());
+    let usernames_by_ids_route = get_usernames_by_ids_route(pool.clone());
+    let usernames_by_prefix_route = get_usernames_by_prefix_route(pool.clone());
+    let ws_route = ws_route(pool.clone(), tx.clone(), session_cache.clone(), connected_users_registry.clone());
 
-    let total_route = ws_route.or(login_route).or(register_route).or(chat_history_route).or(me_route).or(logout_route);
+    let total_route = ws_route.or(login_route).or(register_route).or(chat_history_route).or(me_route).or(logout_route).or(online_users_route).or(user_ids_by_sessions_route).or(usernames_by_ids_route).or(usernames_by_prefix_route);
 
     // Background task for session cleanup AND cache sync
     let pool_cleanup = pool.clone();

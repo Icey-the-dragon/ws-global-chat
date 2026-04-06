@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT username FROM app_users WHERE LOWER(username) LIKE ? ORDER BY username LIMIT 10",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 200
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "87d3b03a32c72fc1cfa8530605111a543fad944b2bccc8221a1d5dacd7a36b07"
+}

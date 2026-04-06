@@ -226,7 +226,7 @@ pub async fn get_user_by_token(
 }
 
 /// Resolve a list of user IDs to their usernames. still to implement endpoint
-pub async fn _get_usernames_by_ids(
+pub async fn get_usernames_by_ids(
     pool: &sqlx::MySqlPool,
     ids: &[i32],
 ) -> Result<Vec<String>, sqlx::Error> {

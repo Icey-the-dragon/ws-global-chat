@@ -56,7 +56,7 @@ pub async fn send_to_user(
 }
 
 /// Get the list of all currently connected user IDs.
-pub async fn _get_online_user_ids(connected: &ConnectedUsers) -> Vec<i32> {
+pub async fn get_online_user_ids(connected: &ConnectedUsers) -> Vec<i32> {
     let map = connected.read().await;
     map.keys().cloned().collect()
 }

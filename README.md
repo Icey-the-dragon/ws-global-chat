@@ -7,8 +7,9 @@ Dockerized app that makes a web app and api to serve a chat that goes trough web
 - [x] Support /api/me?**id** Not supporting /api/logout?**id** since anyone could log anyone else out, maybe on the future if **id** changes from number to something else
 - [x] Limit use of the /api/get_chat_history endpoint
 - [ ] Make a full api helper so implementation is easier
-- [ ] Create endpoint for list of ids solving to list of usernames
+- [x] Create endpoint for list of ids solving to list of usernames
 - [ ] Change find_user_by_username calls to find_id_by_username and use the id instead (Optimization)
+- [ ] Add channels
 
 ## WebSocket Protocol
 
@@ -66,6 +67,13 @@ All WebSocket messages use a typed envelope:
   - Body: `LoginRequest`
 - `/api/logout` → **(POST)** Erases cookie and closes session (future: `?id=<sessid>` parameter)
 - `/api/get_chat_history?limit=<number>` → **(GET)** Responds with the last N broadcast messages (currently exploitable, careful with bandwidth)
+- `/api/online_users` → **(GET)** Returns array of usernames currently connected
+- `/api/user_ids_by_sessions` → **(POST)** Returns array of user IDs for given session IDs. If no session_ids provided, uses cookie token
+  - Body: `SessionIdsRequest`
+- `/api/usernames_by_ids` → **(POST)** Returns array of usernames for given user IDs (in same order, null if not found)
+  - Body: `UserIdsRequest`
+- `/api/usernames_by_prefix` → **(POST)** Returns array of usernames starting with the given prefix (max 10 results)
+  - Body: `UsernamePrefixRequest`
 
 ### Data Structures
 ```
@@ -80,5 +88,14 @@ MeResponse {
 AuthResponse {
     "message": "successful auth (is for debugging and optional)",
     "session_token": "token_or_null"
+}
+SessionIdsRequest {
+    "session_ids": ["token1", "token2"] // optional, if empty uses cookie
+}
+UserIdsRequest {
+    "user_ids": [1, 2, 3]
+}
+UsernamePrefixRequest {
+    "prefix": "user"
 }
 ```
