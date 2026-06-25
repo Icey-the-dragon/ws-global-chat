@@ -23,6 +23,7 @@ let usernameQueryTimeout = null;
 let selectedSuggestionIndex = -1;
 let currentSuggestions = [];
 let currentOnSelect = null;
+let lastSelectedUsername = null;
 
 // Hide login overlay initially to prevent flash if user has valid session
 loginOverlay.classList.add('hidden');
@@ -240,7 +241,7 @@ function startChat() {
     load_history(50);
 
     socket.onmessage = function (event) {
-        if (event.data.startsWith("403 ")){
+        if (event.data.startsWith("403 ")) {
             window.location.reload();
         }
         const msg = JSON.parse(event.data);
@@ -250,8 +251,11 @@ function startChat() {
         switch (msg.type) {
             case 'private':
                 messageElement.classList.add('private-message');
-                const recipient = msg.to_username ? ` to ${msg.to_username}` : '';
-                messageElement.innerHTML = `<strong>[PM${recipient}] ${msg.username}:</strong> ${msg.content}`;
+                const isSender = msg.to_username && msg.to_username !== currentUsername;
+                const label = isSender
+                    ? `[PM to ${msg.to_username}]`
+                    : `[PM from ${msg.username}]`;
+                messageElement.innerHTML = `<strong>${label}</strong> ${msg.content}`;
                 break;
             case 'ephemeral':
                 messageElement.classList.add('ephemeral-message');
@@ -291,11 +295,11 @@ function startChat() {
 
 //send message function
 input.addEventListener('input', (event) => {
-    const text = input.value;
+    const text = input.textContent;
     hideSuggestions();
     if (text.includes('@')) {
         // Username completion after @
-        const atIndex = text.lastIndexOf('@');
+        const atIndex = text.indexOf('@');
         const prefix = text.substring(atIndex + 1);
         if (prefix.length >= 1) { // Require at least 1 character before querying
             // Debounce the query
@@ -304,9 +308,18 @@ input.addEventListener('input', (event) => {
                 const matches = await queryUsernames(prefix.toLowerCase());
                 if (matches.length > 0) {
                     showSuggestions(matches, (selected) => {
-                        const beforeAt = text.substring(0, atIndex + 1);
-                        input.value = beforeAt + selected + ' ';
+                        const beforeAt = text.substring(0, atIndex);
+                        lastSelectedUsername = selected;
+                        input.innerHTML = beforeAt + '<span class="mention">@' + selected.trim() + '</span>&nbsp;';
                         input.focus();
+                        // Move cursor to end
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(input);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        hideSuggestions();
                     });
                 }
             }, 300); // Increased debounce to 300ms
@@ -338,13 +351,13 @@ input.addEventListener('keydown', (event) => {
         // Command and username auto-completion with Ctrl+Space
         if (event.ctrlKey && event.code === 'Space') {
             event.preventDefault();
-            const text = input.value;
-            
+            const text = input.textContent;
+
             // Check for username completion (@x pattern)
             if (text.includes('@')) {
                 const atIndex = text.lastIndexOf('@');
                 const prefix = text.substring(atIndex + 1);
-                
+
                 // Check if @ is followed by at least 1 character and no spaces
                 if (prefix.length >= 1 && !prefix.includes(' ')) {
                     // Query usernames
@@ -352,89 +365,140 @@ input.addEventListener('keydown', (event) => {
                         if (matches.length > 0) {
                             showSuggestions(matches, (selected) => {
                                 const beforeAt = text.substring(0, atIndex + 1);
-                                input.value = beforeAt + selected + ' ';
+                                lastSelectedUsername = selected;
+                                input.innerHTML = beforeAt + '<span class="mention">@' + selected.trim() + '</span>&nbsp;';
                                 input.focus();
+                                // Move cursor to end
+                                const range = document.createRange();
+                                const sel = window.getSelection();
+                                range.selectNodeContents(input);
+                                range.collapse(false);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                                hideSuggestions();
                             });
                         }
                     });
                     return;
                 }
             }
-            
+
             // Check if input starts with /
             if (text.startsWith('/')) {
                 const commands = [
                     '/pm @username message',
                     '/ephemeral message'
                 ];
-                
+
                 // Filter commands that start with the input
                 const matches = commands.filter(cmd => cmd.startsWith(text));
-                
+
                 if (matches.length === 1) {
                     // Auto-complete if only one match
                     const selected = matches[0];
                     if (selected.startsWith('/pm')) {
-                        input.value = '/pm @';
-                        input.setSelectionRange(5, 5);
+                        input.textContent = '/pm @';
+                        input.focus();
+                        // Set cursor after @
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.setStart(input.firstChild, 5);
+                        range.setEnd(input.firstChild, 5);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
                     } else if (selected.startsWith('/ephemeral')) {
-                        input.value = '/ephemeral ';
-                        input.setSelectionRange(11, 11);
+                        input.innerHTML = '/ephemeral&nbsp;';
+                        input.focus();
+                        // Set cursor at end
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(input);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
                     }
                     input.focus();
                 } else if (matches.length > 1) {
                     // Show suggestions if multiple matches
                     showSuggestions(matches, (selected) => {
                         if (selected.startsWith('/pm')) {
-                            input.value = '/pm @';
-                            input.setSelectionRange(5, 5);
+                            input.textContent = '/pm @';
+                            input.focus();
+                            // Set cursor after @
+                            const range = document.createRange();
+                            const sel = window.getSelection();
+                            range.setStart(input.firstChild, 5);
+                            range.setEnd(input.firstChild, 5);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
                         } else if (selected.startsWith('/ephemeral')) {
-                            input.value = '/ephemeral ';
-                            input.setSelectionRange(11, 11);
+                            input.innerHTML = '/ephemeral&nbsp;';
+                            input.focus();
+                            // Set cursor at end
+                            const range = document.createRange();
+                            const sel = window.getSelection();
+                            range.selectNodeContents(input);
+                            range.collapse(false);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
                         }
                         input.focus();
                     });
                 }
             }
         }
-    }
-});
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            const text = input.textContent.trim();
+            if (text !== '' && socket) {
+                let msg;
 
-input.addEventListener('keypress', (event) => {
-    if (event.key === 'Enter' && input.value.trim() !== '' && socket) {
-        const text = input.value.trim();
-        let msg;
+                if (text.startsWith('/pm ')) {
+                    // Format: /pm @username message
+                    if (lastSelectedUsername) {
+                        // Use the selected username
+                        const parts = text.substring(4).match(/^@\S+\s+(.*)/);
+                        if (parts) {
+                            msg = {
+                                type: "private",
+                                metadata: { session_id: currentSessionToken, to_username: lastSelectedUsername },
+                                content: parts[1]
+                            };
+                        }
+                    } else {
+                        const parts = text.substring(4).match(/^@(\S+)\s+(.*)/);
+                        if (parts) {
+                            msg = {
+                                type: "private",
+                                metadata: { session_id: currentSessionToken, to_username: parts[1] },
+                                content: parts[2]
+                            };
+                        }
+                    }
+                    lastSelectedUsername = null; // Reset
+                } else if (text.startsWith('/ephemeral ')) {
+                    msg = {
+                        type: "ephemeral",
+                        metadata: { session_id: currentSessionToken },
+                        content: text.substring(11)
+                    };
+                } else {
+                    msg = {
+                        type: "broadcast",
+                        metadata: { session_id: currentSessionToken },
+                        content: text
+                    };
+                }
 
-        if (text.startsWith('/pm ')) {
-            // Format: /pm @username message
-            const parts = text.substring(4).match(/^@(\S+)\s+(.*)/);
-            if (parts) {
-                msg = {
-                    type: "private",
-                    metadata: { session_id: currentSessionToken, to_username: parts[1] },
-                    content: parts[2]
-                };
+                if (msg) {
+                    socket.send(JSON.stringify(msg));
+                }
+                input.innerHTML = '';
             }
-        } else if (text.startsWith('/ephemeral ')) {
-            msg = {
-                type: "ephemeral",
-                metadata: { session_id: currentSessionToken },
-                content: text.substring(11)
-            };
-        } else {
-            msg = {
-                type: "broadcast",
-                metadata: { session_id: currentSessionToken },
-                content: text
-            };
         }
-
-        if (msg) {
-            socket.send(JSON.stringify(msg));
-        }
-        input.value = '';
     }
 });
+
 logoutButton.addEventListener('click', async () => {
     try {
         await fetch('/api/logout', { method: 'POST' });

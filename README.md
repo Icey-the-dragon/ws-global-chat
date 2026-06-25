@@ -8,8 +8,10 @@ Dockerized app that makes a web app and api to serve a chat that goes trough web
 - [x] Limit use of the /api/get_chat_history endpoint
 - [ ] Make a full api helper so implementation is easier
 - [x] Create endpoint for list of ids solving to list of usernames
-- [ ] Change find_user_by_username calls to find_id_by_username and use the id instead (Optimization)
 - [ ] Add channels
+  - [ ] Change DB to separate messages between all the channels
+  - [ ] Change /ws endpoint to redirect to a list of dynamic endpoints for the channels. IE /ws -> /channel/[0-4] and have extra channels for other things like /channel/info or /channel/unformatted-[0-99] etc.
+
 
 ## WebSocket Protocol
 

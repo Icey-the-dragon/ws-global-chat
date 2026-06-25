@@ -59,9 +59,9 @@ pub fn login_route(
         .and(warp::path("login"))
         .and(warp::post()) // Intercept only POST requests
         .and(warp::body::json()) // Automatically parse JSON into LoginRequest
-        .and(warp::any().map(move || pool.clone())) // Inject the database pool
+        .and(warp::any().map(move || pool.clone())) // Inject ? the database pool
         .and(warp::any().map(move || session_cache.clone()))
-        .and_then(handle_login) // Pass the data to your logic function
+        .and_then(handle_login) // Pass the data to the logic function
 }
 
 pub async fn handle_login(
@@ -132,7 +132,7 @@ pub fn register_route(
         .and(warp::body::json()) // Automatically parse JSON into LoginRequest
         .and(warp::any().map(move || pool.clone())) // Inject the database pool
         .and(warp::any().map(move || session_cache.clone()))
-        .and_then(handle_register) // Pass the data to your logic function
+        .and_then(handle_register) // Pass the data to the logic function
 }
 
 pub async fn handle_register(
@@ -222,7 +222,7 @@ pub fn get_chat_history(
         .and(warp::get()) // Intercept only GET requests
         .and(warp::query::query())
         .and(warp::any().map(move || pool.clone())) // Inject the database pool
-        .and_then(handle_chat_history) // Pass the data to your logic function
+        .and_then(handle_chat_history) // Pass the data to the logic function
 }
 
 pub async fn handle_chat_history(

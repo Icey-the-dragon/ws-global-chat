@@ -176,8 +176,8 @@ body {
 }
 
 .private-message {
-    background: rgba(233, 69, 96, 0.2);
-    border-left: 3px solid #e94560;
+    background: rgba(70, 130, 255, 0.18);
+    border-left: 3px solid #4da8ff;
 }
 
 .ephemeral-message {
@@ -206,11 +206,17 @@ body {
     border-radius: 12px;
     color: #fff;
     box-sizing: border-box;
+    min-height: 20px;
+    outline: none;
 }
 
 #input:focus {
-    outline: none;
     border-color: #ff4d6d;
+}
+
+.mention {
+    color: #e94560;
+    font-weight: bold;
 }
 
 /* Suggestion menu scrollbar styling */
